@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<title>خريطة توزيع المياه</title>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+
+<style>
+
+html, body{
+margin:0;
+padding:0;
+width:100%;
+background:#0b0b0b;
+color:white;
+font-family:Arial;
+text-align:center;
+overflow-x:hidden;
+}
+
+/* العنوان */
+.title-box{
+background:#111;
+padding:12px;
+margin:10px auto;
+width:95%;
+max-width:900px;
+border-radius:10px;
+border:1px solid #333;
+}
+
+h2{
+font-size:28px;
+margin:5px 0;
+}
+
+/* ⭐ العناوين (الأسماء) */
+.credits{
+font-size:18px;
+color:#ddd;
+line-height:1.6;
+margin-top:8px;
+}
+
+.bold{
+font-weight:900;
+color:#ffffff;
+font-size:20px;
+}
+
+/* أزرار */
+button{
+margin:5px;
+padding:6px 10px;
+background:#333;
+color:white;
+border:none;
+border-radius:5px;
+cursor:pointer;
+}
+
+/* الخريطة */
+.map-container{
+position:relative;
+width:100vw;
+max-width:1200px;
+margin:10px auto;
+transform-origin: top left;
+border:2px solid #222;
+}
+
+.map-container img{
+width:100%;
+height:auto;
+display:block;
+}
+
+/* النقاط */
+.dot{
+position:absolute;
+transform:translate(-50%,-50%);
+animation:blink 1.5s infinite;
+box-sizing:border-box;
+width:18px;
+height:18px;
+}
+
+/* وميض */
+@keyframes blink{
+0%{opacity:0.6;}
+50%{opacity:1;}
+100%{opacity:0.3;}
+}
+
+/* الاسم */
+.label{
+position:absolute;
+font-size:11px;
+background:rgba(0,0,0,0.6);
+color:#fff;
+padding:3px 6px;
+border-radius:4px;
+white-space:nowrap;
+transform:translate(15px,-50%);
+border:1px solid rgba(255,255,255,0.2);
+pointer-events:none;
+z-index:10;
+}
+
+/* مفتاح الرموز */
+.legend{
+margin-top:10px;
+text-align:center;
+}
+
+.legend-items{
+display:flex;
+justify-content:center;
+gap:25px;
+flex-wrap:wrap;
+align-items:center;
+margin-bottom:10px;
+}
+
+.circle-green{
+width:14px;
+height:14px;
+border-radius:50%;
+background:rgba(0,255,0,0.6);
+border:1px solid lime;
+display:inline-block;
+margin-left:5px;
+}
+
+.square-red{
+width:14px;
+height:14px;
+background:rgba(255,0,0,0.6);
+border:1px solid red;
+display:inline-block;
+margin-left:5px;
+}
+
+/* صورة Add */
+.add-img{
+width:130px;
+display:block;
+margin:10px auto 0;
+border:1px solid #333;
+border-radius:8px;
+background:#000;
+}
+
+/* فلترة */
+.filter{
+margin:10px;
+}
+
+/* موبايل */
+@media (max-width: 768px){
+.map-container{
+width:100vw;
+}
+.dot{
+width:22px;
+height:22px;
+}
+.label{
+font-size:12px;
+}
+}
+
+</style>
+</head>
+
+<body>
+
+<!-- العنوان -->
+<div class="title-box">
+
+<h2>خريطة توزيع المياه اليومية - مركز الدالية</h2>
+
+<div class="credits">
+فكرة وإخراج: <span class="bold">م. أيمن عبد الرزاق حسن</span><br>
+تصميم وغرافيك: <span class="bold">م. سحر بسام عيسى</span>
+</div>
+
+</div>
+
+<!-- أزرار -->
+<button onclick="zoomIn()">تكبير +</button>
+<button onclick="zoomOut()">تصغير -</button>
+
+<!-- فلترة -->
+<div class="filter">
+<button onclick="setFilter('all')">الكل</button>
+<button onclick="setFilter('منطقة')">مناطق</button>
+<button onclick="setFilter('محطة')">محطات</button>
+</div>
+
+<!-- الخريطة -->
+<div class="map-container" id="map">
+<img id="img" src="map.png">
+</div>
+
+<!-- مفتاح الرموز -->
+<div class="legend">
+
+<div class="legend-items">
+
+<div>
+<span class="circle-green"></span>
+منطقة تتلقى مياه
+</div>
+
+<div>
+<span class="square-red"></span>
+محطة عاملة
+</div>
+
+</div>
+
+<img src="Add.jpg" class="add-img">
+
+</div>
+
+<script>
+
+let points = [];
+let scale = 1;
+let filterType = "all";
+
+const map = document.getElementById("map");
+const img = document.getElementById("img");
+
+window.onload = function(){
+
+fetch("coor.xlsx")
+.then(res => res.arrayBuffer())
+.then(data => {
+
+const workbook = XLSX.read(data,{type:"array"});
+const sheet = workbook.Sheets[workbook.SheetNames[0]];
+
+points = XLSX.utils.sheet_to_json(sheet);
+
+draw();
+
+})
+.catch(err=>{
+alert("خطأ بقراءة الملف");
+console.log(err);
+});
+
+};
+
+function draw(){
+
+document.querySelectorAll(".dot").forEach(d=>d.remove());
+document.querySelectorAll(".label").forEach(l=>l.remove());
+
+points.forEach(p=>{
+
+if(!p || isNaN(p.x) || isNaN(p.y)) return;
+
+if(filterType !== "all" && p.type !== filterType) return;
+
+if(p.status !== "نعم") return;
+
+let dot = document.createElement("div");
+dot.className = "dot";
+
+dot.style.left = p.x + "%";
+dot.style.top = p.y + "%";
+
+if(p.type === "منطقة"){
+dot.style.background = "rgba(0,255,0,0.6)";
+dot.style.border = "1px solid lime";
+dot.style.borderRadius = "50%";
+}
+else if(p.type === "محطة"){
+dot.style.background = "rgba(255,0,0,0.6)";
+dot.style.border = "1px solid red";
+dot.style.borderRadius = "2px";
+}
+
+if(p.name && p.name.includes("بشيلي")){
+let autoLabel = document.createElement("div");
+autoLabel.className = "label";
+autoLabel.innerText = p.name;
+
+autoLabel.style.left = p.x + "%";
+autoLabel.style.top = p.y + "%";
+
+map.appendChild(autoLabel);
+}
+
+dot.onclick = function(e){
+e.stopPropagation();
+
+let temp = document.createElement("div");
+temp.className = "label";
+temp.innerText = p.name || "بدون اسم";
+
+temp.style.left = p.x + "%";
+temp.style.top = p.y + "%";
+
+map.appendChild(temp);
+
+setTimeout(()=>{
+temp.remove();
+}, 1000);
+
+};
+
+map.appendChild(dot);
+
+});
+
+}
+
+function zoomIn(){
+scale += 0.1;
+map.style.transform = `scale(${scale})`;
+}
+
+function zoomOut(){
+scale -= 0.1;
+if(scale < 0.5) scale = 0.5;
+map.style.transform = `scale(${scale})`;
+}
+
+function setFilter(type){
+filterType = type;
+draw();
+}
+
+img.onload = ()=> draw();
+
+</script>
+
+</body>
+</html>
